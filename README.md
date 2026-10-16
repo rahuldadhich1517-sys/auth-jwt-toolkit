@@ -40,8 +40,6 @@ A production-ready, lightweight, zero-dependency TypeScript toolkit for decoding
 - [Runtime Compatibility](#runtime-compatibility)
 - [API Reference](#api-reference)
 - [Security Boundaries & Limitations](#security-boundaries--limitations)
-- [Development & Testing](#development--testing)
-- [Project Architecture](#project-architecture)
 - [License & Contributing](#license--contributing)
 
 ---
@@ -416,55 +414,6 @@ function getJwtRemainingValidity(
 2. **Untrusted Data Notice**: Claims in a decoded token are readable data that may have been tampered with if the token was not verified against a trusted key. Never make authorization decisions solely based on decoded claims.
 3. **No Network Access**: This library never connects to external servers, fetches remote JWKS (`jku`), or follows URLs.
 4. **No Code Execution**: Claims are parsed strictly with `JSON.parse` and are never evaluated as JavaScript expressions.
-
----
-
-## Development & Testing
-
-```bash
-# Install dependencies
-npm install
-
-# Run type checking
-npm run typecheck
-
-# Run test suite
-npm run test:run
-
-# Build ESM, CJS, and type definitions
-npm run build
-
-# Verify packaging
-npm pack --dry-run
-```
-
----
-
-## Project Architecture
-
-```text
-auth-jwt-toolkit/
-├── src/
-│   ├── jwt-decoder/        # decodeJwt implementation and types
-│   ├── jwt-validator/      # validateJwt implementation and types
-│   ├── jwt-inspector/      # inspectJwt implementation and types
-│   ├── jwt-expiry/         # getJwtExpiry, isJwtExpired, getJwtRemainingValidity
-│   ├── internal/           # Shared token parser, Base64URL, time, claims, errors
-│   └── index.ts            # Public barrel entry point
-├── tests/
-│   ├── jwt-decoder.test.ts
-│   ├── jwt-validator.test.ts
-│   ├── jwt-inspector.test.ts
-│   ├── jwt-expiry.test.ts
-│   ├── security.test.ts
-│   └── integration.test.ts
-├── .github/workflows/ci.yml
-├── CHANGELOG.md
-├── LICENSE
-├── package.json
-├── tsconfig.json
-└── tsup.config.ts
-```
 
 ---
 
