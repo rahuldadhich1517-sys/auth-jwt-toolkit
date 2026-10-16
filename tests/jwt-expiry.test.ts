@@ -3,33 +3,43 @@ import {
   getJwtExpiry,
   isJwtExpired,
   getJwtRemainingValidity,
+  validateJwt,
   JwtExpiryError,
   JwtParseError,
   ErrorCodes,
 } from '../src/index.js';
-import { createTestToken } from './helpers/test-tokens.js';
+import { createTestToken, TEST_EPOCH } from './helpers/test-tokens.js';
 
-describe('jwt-expiry: expiry utilities', () => {
-  const referenceTime = 1700000000; // 2023-11-14T22:13:20.000Z
+describe('jwt-expiry: comprehensive test matrix', () => {
+  const referenceTime = TEST_EPOCH; // 1700000000
 
-  describe('getJwtExpiry', () => {
-    it('should extract valid expiration and calculate timestamps and remaining validity', () => {
-      const expTime = referenceTime + 600; // 10 minutes ahead
+  describe('A. getJwtExpiry()', () => {
+    it('extracts valid future expiration and formats Date, ISO, and remaining validity', () => {
+      const expTime = referenceTime + 3600;
       const token = createTestToken(undefined, { exp: expTime });
-
       const result = getJwtExpiry(token, { now: referenceTime });
 
       expect(result.hasExpiration).toBe(true);
       expect(result.exp).toBe(expTime);
-      expect(result.date?.getTime()).toBe(expTime * 1000);
-      expect(result.iso).toBe('2023-11-14T22:23:20.000Z');
+      expect(result.date).toEqual(new Date(expTime * 1000));
+      expect(result.iso).toBe('2023-11-14T23:13:20.000Z');
       expect(result.isExpired).toBe(false);
-      expect(result.remainingValiditySeconds).toBe(600);
+      expect(result.remainingValiditySeconds).toBe(3600);
     });
 
-    it('should report hasExpiration: false and null values when exp is absent', () => {
-      const token = createTestToken(undefined, { sub: 'usr_no_exp' });
+    it('extracts expired token and computes negative remaining validity', () => {
+      const expTime = referenceTime - 180;
+      const token = createTestToken(undefined, { exp: expTime });
+      const result = getJwtExpiry(token, { now: referenceTime });
 
+      expect(result.hasExpiration).toBe(true);
+      expect(result.isExpired).toBe(true);
+      expect(result.remainingValiditySeconds).toBe(-180);
+      expect(result.iso).toBe('2023-11-14T22:10:20.000Z');
+    });
+
+    it('returns hasExpiration: false and null fields when exp is absent', () => {
+      const token = createTestToken(undefined, { sub: 'usr_no_exp' });
       const result = getJwtExpiry(token);
 
       expect(result.hasExpiration).toBe(false);
@@ -40,127 +50,187 @@ describe('jwt-expiry: expiry utilities', () => {
       expect(result.remainingValiditySeconds).toBeNull();
     });
 
-    it('should throw JwtExpiryError with ERR_INVALID_EXPIRATION_CLAIM if exp is not a valid NumericDate', () => {
-      const token = createTestToken(undefined, { exp: 'invalid-string' });
+    it('supports expiration at epoch zero (1970-01-01T00:00:00.000Z)', () => {
+      const token = createTestToken(undefined, { exp: 0 });
+      const result = getJwtExpiry(token, { now: referenceTime });
 
-      expect(() => getJwtExpiry(token)).toThrowError(JwtExpiryError);
-      expect(() => getJwtExpiry(token)).toThrowError(
-        expect.objectContaining({ code: ErrorCodes.ERR_INVALID_EXPIRATION_CLAIM })
-      );
+      expect(result.hasExpiration).toBe(true);
+      expect(result.exp).toBe(0);
+      expect(result.iso).toBe('1970-01-01T00:00:00.000Z');
+      expect(result.isExpired).toBe(true);
+      expect(result.remainingValiditySeconds).toBe(-referenceTime);
     });
 
-    it('should throw JwtParseError on malformed token input', () => {
-      expect(() => getJwtExpiry('invalid.jwt')).toThrowError(JwtParseError);
+    it('supports negative expiration dates (dates before 1970)', () => {
+      const token = createTestToken(undefined, { exp: -86400 }); // 1969-12-31
+      const result = getJwtExpiry(token, { now: referenceTime });
+
+      expect(result.hasExpiration).toBe(true);
+      expect(result.exp).toBe(-86400);
+      expect(result.iso).toBe('1969-12-31T00:00:00.000Z');
+      expect(result.isExpired).toBe(true);
+    });
+
+    it('supports fractional NumericDate values', () => {
+      const token = createTestToken(undefined, { exp: referenceTime + 0.5 });
+      const result = getJwtExpiry(token, { now: referenceTime });
+
+      expect(result.hasExpiration).toBe(true);
+      expect(result.exp).toBe(referenceTime + 0.5);
+      expect(result.isExpired).toBe(false);
+      expect(result.date?.getUTCMilliseconds()).toBe(500);
+    });
+
+    it('throws JwtExpiryError with ERR_INVALID_EXPIRATION_CLAIM for non-numeric exp', () => {
+      const invalidTokens = [
+        createTestToken(undefined, { exp: '1700000000' }),
+        createTestToken(undefined, { exp: true }),
+        createTestToken(undefined, { exp: null }),
+        createTestToken(undefined, { exp: {} }),
+        createTestToken(undefined, { exp: [1700000000] }),
+        createTestToken(undefined, { exp: Number.NaN }),
+        createTestToken(undefined, { exp: Infinity }),
+      ];
+
+      for (const t of invalidTokens) {
+        expect(() => getJwtExpiry(t)).toThrowError(JwtExpiryError);
+        expect(() => getJwtExpiry(t)).toThrowError(
+          expect.objectContaining({ code: ErrorCodes.ERR_INVALID_EXPIRATION_CLAIM })
+        );
+      }
+    });
+
+    it('throws JwtParseError on malformed token strings', () => {
+      expect(() => getJwtExpiry('not.a-token')).toThrowError(JwtParseError);
+    });
+
+    it('honors clockToleranceSeconds in isExpired field', () => {
+      const token = createTestToken(undefined, { exp: referenceTime - 10 });
+
+      // Without tolerance: expired
+      expect(getJwtExpiry(token, { now: referenceTime, clockToleranceSeconds: 0 }).isExpired).toBe(true);
+
+      // With 15s tolerance: not expired
+      expect(getJwtExpiry(token, { now: referenceTime, clockToleranceSeconds: 15 }).isExpired).toBe(false);
     });
   });
 
-  describe('isJwtExpired', () => {
-    it('should return false for an active token with future exp', () => {
+  describe('B. isJwtExpired()', () => {
+    it('returns false for token expiring in future', () => {
       const token = createTestToken(undefined, { exp: referenceTime + 100 });
       expect(isJwtExpired(token, { now: referenceTime })).toBe(false);
     });
 
-    it('should return true for an already-expired token', () => {
-      const token = createTestToken(undefined, { exp: referenceTime - 100 });
+    it('returns true for expired token in the past', () => {
+      const token = createTestToken(undefined, { exp: referenceTime - 1 });
       expect(isJwtExpired(token, { now: referenceTime })).toBe(true);
     });
 
-    it('should return true at the exact expiration second (currentTime === exp) per RFC 7519', () => {
-      // RFC 7519: current time must be BEFORE expiration date/time
+    it('returns true at exact expiration second (now === exp)', () => {
       const token = createTestToken(undefined, { exp: referenceTime });
       expect(isJwtExpired(token, { now: referenceTime })).toBe(true);
     });
 
-    it('should throw JwtExpiryError by default when token has no exp claim', () => {
-      const token = createTestToken(undefined, { sub: 'usr_123' });
-
+    it('throws JwtExpiryError by default when token has no exp claim', () => {
+      const token = createTestToken(undefined, { sub: 'usr_1' });
       expect(() => isJwtExpired(token, { now: referenceTime })).toThrowError(
         expect.objectContaining({ code: ErrorCodes.ERR_NO_EXPIRATION_CLAIM })
       );
     });
 
-    it('should respect treatMissingExpAs option when configured', () => {
-      const token = createTestToken(undefined, { sub: 'usr_123' });
-
+    it('respects treatMissingExpAs: "expired" by returning true', () => {
+      const token = createTestToken(undefined, { sub: 'usr_1' });
       expect(
         isJwtExpired(token, { now: referenceTime, treatMissingExpAs: 'expired' })
       ).toBe(true);
+    });
 
+    it('respects treatMissingExpAs: "not-expired" by returning false', () => {
+      const token = createTestToken(undefined, { sub: 'usr_1' });
       expect(
         isJwtExpired(token, { now: referenceTime, treatMissingExpAs: 'not-expired' })
       ).toBe(false);
     });
 
-    it('should reject invalid exp types (string, boolean, array, object) with JwtExpiryError', () => {
-      const stringToken = createTestToken(undefined, { exp: '1700000000' });
-      expect(() => isJwtExpired(stringToken, { now: referenceTime })).toThrowError(
-        expect.objectContaining({ code: ErrorCodes.ERR_INVALID_EXPIRATION_CLAIM })
-      );
-
-      const boolToken = createTestToken(undefined, { exp: true });
-      expect(() => isJwtExpired(boolToken, { now: referenceTime })).toThrowError(
-        expect.objectContaining({ code: ErrorCodes.ERR_INVALID_EXPIRATION_CLAIM })
-      );
-
-      const nanToken = createTestToken(undefined, { exp: Number.NaN });
-      expect(() => isJwtExpired(nanToken, { now: referenceTime })).toThrowError(
+    it('throws JwtExpiryError for invalid exp claim types', () => {
+      const token = createTestToken(undefined, { exp: '1700000000' });
+      expect(() => isJwtExpired(token, { now: referenceTime })).toThrowError(
         expect.objectContaining({ code: ErrorCodes.ERR_INVALID_EXPIRATION_CLAIM })
       );
     });
 
-    it('should support clockToleranceSeconds in expiration calculation', () => {
-      // Expired 5 seconds ago
+    it('honors clockToleranceSeconds option', () => {
       const token = createTestToken(undefined, { exp: referenceTime - 5 });
-
-      // Expired without tolerance
       expect(isJwtExpired(token, { now: referenceTime, clockToleranceSeconds: 0 })).toBe(true);
-
-      // Still valid with 10 seconds tolerance
       expect(isJwtExpired(token, { now: referenceTime, clockToleranceSeconds: 10 })).toBe(false);
     });
 
-    it('should accept Date instance for now reference time', () => {
-      const token = createTestToken(undefined, { exp: 1700000000 });
-      const refDate = new Date('2023-11-14T20:00:00.000Z'); // before 1700000000
+    it('accepts Date instance for now reference time', () => {
+      const token = createTestToken(undefined, { exp: referenceTime });
+      const beforeDate = new Date((referenceTime - 10) * 1000);
+      const afterDate = new Date((referenceTime + 10) * 1000);
 
-      expect(isJwtExpired(token, { now: refDate })).toBe(false);
-    });
-
-    it('should throw JwtParseError on malformed token input', () => {
-      expect(() => isJwtExpired('not-a-token')).toThrowError(JwtParseError);
+      expect(isJwtExpired(token, { now: beforeDate })).toBe(false);
+      expect(isJwtExpired(token, { now: afterDate })).toBe(true);
     });
   });
 
-  describe('getJwtRemainingValidity', () => {
-    it('should return positive seconds for an active token', () => {
-      const token = createTestToken(undefined, { exp: referenceTime + 300 });
-      expect(getJwtRemainingValidity(token, { now: referenceTime })).toBe(300);
+  describe('C. getJwtRemainingValidity()', () => {
+    it('returns positive remaining seconds for active tokens', () => {
+      const token = createTestToken(undefined, { exp: referenceTime + 450 });
+      expect(getJwtRemainingValidity(token, { now: referenceTime })).toBe(450);
     });
 
-    it('should return 0 when token is expiring at the current instant', () => {
+    it('returns 0 remaining seconds at the exact expiration second', () => {
       const token = createTestToken(undefined, { exp: referenceTime });
       expect(getJwtRemainingValidity(token, { now: referenceTime })).toBe(0);
     });
 
-    it('should return negative seconds for an expired token', () => {
-      const token = createTestToken(undefined, { exp: referenceTime - 45 });
-      expect(getJwtRemainingValidity(token, { now: referenceTime })).toBe(-45);
+    it('returns negative remaining seconds for expired tokens', () => {
+      const token = createTestToken(undefined, { exp: referenceTime - 90 });
+      expect(getJwtRemainingValidity(token, { now: referenceTime })).toBe(-90);
     });
 
-    it('should return null when the token has no exp claim', () => {
-      const token = createTestToken(undefined, { sub: 'usr_no_exp' });
+    it('returns null when the token has no exp claim (not 0, not false)', () => {
+      const token = createTestToken(undefined, { sub: 'usr_1' });
       expect(getJwtRemainingValidity(token, { now: referenceTime })).toBeNull();
     });
 
-    it('should throw JwtExpiryError if exp is malformed', () => {
-      const token = createTestToken(undefined, { exp: 'not_numeric' });
+    it('throws JwtExpiryError if exp is malformed', () => {
+      const token = createTestToken(undefined, { exp: 'invalid' });
       expect(() => getJwtRemainingValidity(token, { now: referenceTime })).toThrowError(
         expect.objectContaining({ code: ErrorCodes.ERR_INVALID_EXPIRATION_CLAIM })
       );
     });
 
-    it('should throw JwtParseError on malformed token input', () => {
-      expect(() => getJwtRemainingValidity('')).toThrowError(JwtParseError);
+    it('accepts milliseconds timestamp for now (> 1e11)', () => {
+      const token = createTestToken(undefined, { exp: referenceTime + 500 });
+      expect(getJwtRemainingValidity(token, { now: referenceTime * 1000 })).toBe(500);
+    });
+  });
+
+  describe('D. Cross-utility consistency', () => {
+    it('verifies complete consistency between isJwtExpired, getJwtExpiry, and validateJwt', () => {
+      // 1. Expired token
+      const expiredToken = createTestToken(undefined, { exp: referenceTime - 60 });
+      expect(isJwtExpired(expiredToken, { now: referenceTime })).toBe(true);
+      expect(getJwtExpiry(expiredToken, { now: referenceTime }).isExpired).toBe(true);
+      expect(validateJwt(expiredToken, { now: referenceTime }).expired).toBe(true);
+      expect(getJwtRemainingValidity(expiredToken, { now: referenceTime })).toBe(-60);
+
+      // 2. Active token
+      const activeToken = createTestToken(undefined, { exp: referenceTime + 60 });
+      expect(isJwtExpired(activeToken, { now: referenceTime })).toBe(false);
+      expect(getJwtExpiry(activeToken, { now: referenceTime }).isExpired).toBe(false);
+      expect(validateJwt(activeToken, { now: referenceTime }).expired).toBe(false);
+      expect(getJwtRemainingValidity(activeToken, { now: referenceTime })).toBe(60);
+
+      // 3. Boundary token (now === exp)
+      const boundaryToken = createTestToken(undefined, { exp: referenceTime });
+      expect(isJwtExpired(boundaryToken, { now: referenceTime })).toBe(true);
+      expect(getJwtExpiry(boundaryToken, { now: referenceTime }).isExpired).toBe(true);
+      expect(validateJwt(boundaryToken, { now: referenceTime }).expired).toBe(true);
+      expect(getJwtRemainingValidity(boundaryToken, { now: referenceTime })).toBe(0);
     });
   });
 });

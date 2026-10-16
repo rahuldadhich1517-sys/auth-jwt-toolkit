@@ -104,14 +104,21 @@ export function validateJwt(
   }
 
   // 1. Required claims validation
-  if (options.requiredClaims && options.requiredClaims.length > 0) {
-    for (const claim of options.requiredClaims) {
-      if (payload[claim] === undefined) {
-        errors.push({
-          code: 'MISSING_REQUIRED_CLAIM',
-          message: `Required claim "${claim}" is missing`,
-          claim,
-        });
+  if (options.requiredClaims !== undefined) {
+    if (!Array.isArray(options.requiredClaims) || !options.requiredClaims.every((c) => typeof c === 'string')) {
+      errors.push({
+        code: 'ERR_INVALID_OPTIONS',
+        message: 'Option "requiredClaims" must be an array of strings',
+      });
+    } else if (options.requiredClaims.length > 0) {
+      for (const claim of options.requiredClaims) {
+        if (payload[claim] === undefined) {
+          errors.push({
+            code: 'MISSING_REQUIRED_CLAIM',
+            message: `Required claim "${claim}" is missing`,
+            claim,
+          });
+        }
       }
     }
   }
@@ -184,76 +191,96 @@ export function validateJwt(
 
   // 6. Issuer (iss) validation
   if (options.issuer !== undefined) {
-    const allowedIssuers = Array.isArray(options.issuer)
-      ? options.issuer
-      : [options.issuer];
+    if (
+      typeof options.issuer !== 'string' &&
+      !(Array.isArray(options.issuer) && options.issuer.every((i) => typeof i === 'string'))
+    ) {
+      errors.push({
+        code: 'ERR_INVALID_OPTIONS',
+        message: 'Option "issuer" must be a string or array of strings',
+      });
+    } else {
+      const allowedIssuers = Array.isArray(options.issuer)
+        ? options.issuer
+        : [options.issuer];
 
-    if (payload.iss === undefined) {
-      errors.push({
-        code: 'MISSING_REQUIRED_CLAIM',
-        message: 'Token is missing issuer (iss) claim',
-        claim: 'iss',
-      });
-    } else if (typeof payload.iss !== 'string') {
-      errors.push({
-        code: 'INVALID_CLAIM_TYPE',
-        message: 'Claim "iss" must be a string',
-        claim: 'iss',
-      });
-    } else if (!allowedIssuers.includes(payload.iss)) {
-      errors.push({
-        code: 'ISSUER_MISMATCH',
-        message: `Token issuer "${payload.iss}" does not match expected issuer(s)`,
-        claim: 'iss',
-      });
+      if (payload.iss === undefined) {
+        errors.push({
+          code: 'MISSING_REQUIRED_CLAIM',
+          message: 'Token is missing issuer (iss) claim',
+          claim: 'iss',
+        });
+      } else if (typeof payload.iss !== 'string') {
+        errors.push({
+          code: 'INVALID_CLAIM_TYPE',
+          message: 'Claim "iss" must be a string',
+          claim: 'iss',
+        });
+      } else if (!allowedIssuers.includes(payload.iss)) {
+        errors.push({
+          code: 'ISSUER_MISMATCH',
+          message: `Token issuer "${payload.iss}" does not match expected issuer(s)`,
+          claim: 'iss',
+        });
+      }
     }
   }
 
   // 7. Audience (aud) validation
   if (options.audience !== undefined) {
-    const expectedAudiences = Array.isArray(options.audience)
-      ? options.audience
-      : [options.audience];
-
-    const aud = payload.aud;
-    if (aud === undefined) {
+    if (
+      typeof options.audience !== 'string' &&
+      !(Array.isArray(options.audience) && options.audience.every((a) => typeof a === 'string'))
+    ) {
       errors.push({
-        code: 'MISSING_REQUIRED_CLAIM',
-        message: 'Token is missing audience (aud) claim',
-        claim: 'aud',
+        code: 'ERR_INVALID_OPTIONS',
+        message: 'Option "audience" must be a string or array of strings',
       });
-    } else if (typeof aud === 'string') {
-      if (!expectedAudiences.includes(aud)) {
+    } else {
+      const expectedAudiences = Array.isArray(options.audience)
+        ? options.audience
+        : [options.audience];
+
+      const aud = payload.aud;
+      if (aud === undefined) {
         errors.push({
-          code: 'AUDIENCE_MISMATCH',
-          message: `Token audience "${aud}" does not match expected audience(s)`,
+          code: 'MISSING_REQUIRED_CLAIM',
+          message: 'Token is missing audience (aud) claim',
           claim: 'aud',
         });
-      }
-    } else if (Array.isArray(aud)) {
-      const isStringArray = aud.every((item) => typeof item === 'string');
-      if (!isStringArray) {
+      } else if (typeof aud === 'string') {
+        if (!expectedAudiences.includes(aud)) {
+          errors.push({
+            code: 'AUDIENCE_MISMATCH',
+            message: `Token audience "${aud}" does not match expected audience(s)`,
+            claim: 'aud',
+          });
+        }
+      } else if (Array.isArray(aud)) {
+        const isStringArray = aud.every((item) => typeof item === 'string');
+        if (!isStringArray) {
+          errors.push({
+            code: 'INVALID_CLAIM_TYPE',
+            message: 'Claim "aud" must be a string or array of strings',
+            claim: 'aud',
+          });
+        } else {
+          const matches = aud.some((item) => expectedAudiences.includes(item));
+          if (!matches) {
+            errors.push({
+              code: 'AUDIENCE_MISMATCH',
+              message: 'None of the token audiences match expected audience(s)',
+              claim: 'aud',
+            });
+          }
+        }
+      } else {
         errors.push({
           code: 'INVALID_CLAIM_TYPE',
           message: 'Claim "aud" must be a string or array of strings',
           claim: 'aud',
         });
-      } else {
-        const matches = aud.some((item) => expectedAudiences.includes(item));
-        if (!matches) {
-          errors.push({
-            code: 'AUDIENCE_MISMATCH',
-            message: 'None of the token audiences match expected audience(s)',
-            claim: 'aud',
-          });
-        }
       }
-    } else {
-      errors.push({
-        code: 'INVALID_CLAIM_TYPE',
-        message: 'Claim "aud" must be a string or array of strings',
-        claim: 'aud',
-      });
     }
   }
 

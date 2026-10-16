@@ -139,4 +139,67 @@ describe('security: boundary and safety guarantees', () => {
     expect(inspectResult.signature.present).toBe(false);
     expect(inspectResult.warnings).toContain('Token specifies algorithm "none" (unsecured token)');
   });
+
+  it('safely handles deeply nested objects without stack overflow', () => {
+    // Construct an object nested 50 levels deep
+    let nested: Record<string, unknown> = { level: 50, value: 'deep-secret' };
+    for (let i = 49; i >= 1; i--) {
+      nested = { level: i, child: nested };
+    }
+
+    const token = createTestToken(undefined, { sub: 'nested_user', tree: nested });
+    const decoded = decodeJwt(token);
+    expect(decoded.payload['sub']).toBe('nested_user');
+
+    let current = decoded.payload['tree'] as Record<string, unknown>;
+    for (let i = 1; i < 50; i++) {
+      expect(current['level']).toBe(i);
+      current = current['child'] as Record<string, unknown>;
+    }
+    expect(current['level']).toBe(50);
+    expect(current['value']).toBe('deep-secret');
+  });
+
+  it('enforces maxTokenLength limits to prevent DoS via massive token inputs', () => {
+    const hugePadding = 'x'.repeat(70000);
+    const hugeToken = createTestToken(undefined, { sub: 'huge_user', padding: hugePadding });
+
+    // Exceeds default 65536 limit
+    expect(() => decodeJwt(hugeToken)).toThrow(JwtParseError);
+    expect(() => decodeJwt(hugeToken)).toThrow(/JWT token exceeds maximum allowed length/);
+
+    const valResult = validateJwt(hugeToken);
+    expect(valResult.valid).toBe(false);
+    expect(valResult.structureValid).toBe(false);
+    expect(valResult.errors[0]?.code).toBe('ERR_TOKEN_TOO_LARGE');
+
+    // Works when maxTokenLength is increased
+    const customResult = validateJwt(hugeToken, { maxTokenLength: 100000 });
+    expect(customResult.structureValid).toBe(true);
+  });
+
+  it('ensures secret values in payload are not leaked in error messages when validation fails', () => {
+    const privateSecret = 'SUPER_CONFIDENTIAL_TOKEN_SECRET_987654321';
+    const token = createTestToken(
+      { alg: 'HS256' },
+      {
+        sub: 'usr_leak_test',
+        secretClaim: privateSecret,
+        exp: 'not-a-number-trigger-error',
+      }
+    );
+
+    const valResult = validateJwt(token);
+    expect(valResult.valid).toBe(false);
+    const errorMessages = valResult.errors.map((e) => e.message).join(' ');
+    expect(errorMessages).not.toContain(privateSecret);
+
+    try {
+      getJwtExpiry(token);
+      expect.fail('Should have thrown JwtExpiryError');
+    } catch (err) {
+      expect((err as Error).message).not.toContain(privateSecret);
+    }
+  });
 });
+

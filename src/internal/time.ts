@@ -59,7 +59,7 @@ export function resolveReferenceTime(now?: Date | number): number {
       );
     }
     // If timestamp is large (greater than 1e11), it is in milliseconds; convert to seconds
-    return Math.abs(now) > 1e11 ? Math.floor(now / 1000) : Math.floor(now);
+    return Math.abs(now) > 1e11 ? Math.floor(now / 1000) : now;
   }
 
   throw new JwtExpiryError(
@@ -89,5 +89,5 @@ export function validateClockTolerance(toleranceSeconds?: number): number {
     );
   }
 
-  return Math.floor(toleranceSeconds);
+  return toleranceSeconds;
 }

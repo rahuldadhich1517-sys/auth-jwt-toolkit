@@ -53,6 +53,12 @@ export function inspectJwt<
   if (headerRecord['alg'] !== undefined && typeof headerRecord['alg'] !== 'string') {
     warnings.push('Header parameter "alg" is present but is not a string');
   }
+  if (headerRecord['typ'] !== undefined && typeof headerRecord['typ'] !== 'string') {
+    warnings.push('Header parameter "typ" is present but is not a string');
+  }
+  if (headerRecord['kid'] !== undefined && typeof headerRecord['kid'] !== 'string') {
+    warnings.push('Header parameter "kid" is present but is not a string');
+  }
 
   // Inspect Payload Standard Claims
   const iss = typeof payloadRecord['iss'] === 'string' ? payloadRecord['iss'] : undefined;
