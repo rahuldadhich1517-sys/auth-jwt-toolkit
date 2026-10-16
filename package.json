@@ -1,0 +1,72 @@
+{
+  "name": "@rahul_dadhich15/auth-jwt-toolkit",
+  "version": "0.1.0",
+  "description": "Production-ready, dependency-free TypeScript toolkit for decoding, validating, inspecting, and checking the expiration of JSON Web Tokens (JWTs).",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rahuldadhich1517-sys/auth-jwt-toolkit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rahuldadhich1517-sys/auth-jwt-toolkit/issues"
+  },
+  "homepage": "https://github.com/rahuldadhich1517-sys/auth-jwt-toolkit#readme",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "keywords": [
+    "jwt",
+    "jwt-decode",
+    "jwt-decoder",
+    "jwt-validator",
+    "jwt-inspector",
+    "jwt-expiry",
+    "json-web-token",
+    "token",
+    "auth",
+    "authentication",
+    "claims",
+    "base64url",
+    "typescript",
+    "zero-dependencies"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "clean": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\"",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:run": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm run test:run && npm run build && npm pack --dry-run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.3",
+    "vitest": "^5.0.5"
+  },
+  "overrides": {
+    "esbuild": "^0.28.2"
+  }
+}
